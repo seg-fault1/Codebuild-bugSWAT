@@ -1,0 +1,52 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+  pre_build:
+    commands:
+    - echo Pre-build started on `date`
+    - echo Installing dependencies...
+    - curl -LO http://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
+    - bash Miniconda3-latest-Linux-x86_64.sh -bfp /miniconda3
+    - export PATH=/miniconda3/bin:${PATH}
+    - conda install python=3.11
+  build:
+    commands:
+    - echo Build started on `date`
+    - echo Docker login...
+    - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ACCNTID.dkr.ecr.us-east-1.amazonaws.com
+    - echo Building the Docker image...
+    - echo "[+] Downloading artifacts from S3"
+    - aws s3 cp s3://$BCKT_NAME/file.txt .
+    - python3 setup.py bdist_wheel --universal
+    - docker build -t sample-application:$FRAMEWORK_VERSION-cpu-py3 -f docker/$FRAMEWORK_VERSION/base/Dockerfile.cpu .
+    - docker build -t sample-application:$FRAMEWORK_VERSION-cpu-py3 -f docker/$FRAMEWORK_VERSION/final/Dockerfile.cpu .
+    - docker tag sample-application:$FRAMEWORK_VERSION-cpu-py3 $ACCNTID.dkr.ecr.us-east-1.amazonaws.com/sample-application:$FRAMEWORK_VERSION-cpu-py3
+    - docker tag sample-application:$FRAMEWORK_VERSION-cpu-py3 $ACCNTID.dkr.ecr.us-east-1.amazonaws.com/sample-application:$FRAMEWORK_VERSION
+  post_build:
+    commands:
+    - echo Build completed on `date`
+    - |
+      case $CODEBUILD_WEBHOOK_EVENT in
+        PULL_REQUEST_MERGED)
+          echo Logging in to Amazon ECR...
+          $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+          echo Pushing the Docker image...
+          docker push $ACCNTID.dkr.ecr.us-east-1.amazonaws.com/sample-application:$FRAMEWORK_VERSION-cpu-py3
+          docker push $ACCNTID.dkr.ecr.us-east-1.amazonaws.com/sample-application:$FRAMEWORK_VERSION
+          ;;
+        PULL_REQUEST_CREATED | PULL_REQUEST_UPDATED | PULL_REQUEST_REOPENED)
+          echo Logging in to Amazon ECR...
+          $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+          echo Pushing the Docker image...
+          # pushes test tag for manual verification, requires cleanup in ECR every once in a while though
+          TEST_TAG=$ACCNTID.dkr.ecr.us-east-1.amazonaws.com/sample-application:${FRAMEWORK_VERSION}-cpu-py3-test
+          docker tag sample-application:$FRAMEWORK_VERSION-cpu-py3 ${TEST_TAG}
+          docker push ${TEST_TAG}
+          ;;
+        *)
+          echo Undefined behavior for webhook event type $CODEBUILD_WEBHOOK_EVENT
+          ;;
+      esac

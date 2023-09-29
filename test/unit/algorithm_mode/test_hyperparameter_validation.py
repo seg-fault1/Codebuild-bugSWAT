@@ -1,0 +1,128 @@
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the 'License'). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+#     http://aws.amazon.com/apache2.0/
+#
+# or in the 'license' file accompanying this file. This file is
+# distributed on an 'AS IS' BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+from __future__ import absolute_import
+import unittest
+
+from sagemaker_algorithm_toolkit import exceptions as exc
+
+from sagemaker_xgboost_container.algorithm_mode import hyperparameter_validation as hpv
+from sagemaker_xgboost_container.algorithm_mode import metrics as metrics_mod
+
+metrics = metrics_mod.initialize()
+hyperparameters = hpv.initialize(metrics)
+
+
+class TestHyperparameterValidation(unittest.TestCase):
+
+    def test_auc_invalid_objective(self):
+        test_hp = {
+            'eval_metric': 'auc'}
+
+        auc_invalid_objectives = [
+            'count:poisson',
+            'reg:gamma',
+            'reg:logistic',
+            'reg:squarederror',
+            'reg:tweedie',
+            'multi:softmax',
+            'multi:softprob',
+            'survival:cox']
+
+        for invalid_objective in auc_invalid_objectives:
+            test_hp['objective'] = invalid_objective
+
+            with self.assertRaises(exc.UserError):
+                hyperparameters.validate(test_hp)
+
+    def test_verbosity(self):
+        test_hp = {
+            'num_round': '1',
+            'verbosity': '0'}
+
+        assert hyperparameters.validate(test_hp)
+
+        test_hp2 = {
+            'num_round': '1',
+            'verbosity': '3'}
+
+        assert hyperparameters.validate(test_hp2)
+
+        test_hp3 = {
+            'num_round': '1',
+            'verbosity': '4'}
+
+        with self.assertRaises(exc.UserError):
+            hyperparameters.validate(test_hp3)
+
+    def test_num_parallel_tree(self):
+        test_hp = {
+            'num_round': '5',
+            'num_parallel_tree': '10'
+        }
+
+        assert hyperparameters.validate(test_hp)
+
+        test_hp2 = {
+            'num_round': '5',
+            'num_parallel_tree': '-1'
+        }
+
+        with self.assertRaises(exc.UserError):
+            hyperparameters.validate(test_hp2)
+
+        test_hp3 = {
+            'num_round': '5',
+            'num_parallel_tree': '0'
+        }
+
+        with self.assertRaises(exc.UserError):
+            hyperparameters.validate(test_hp3)
+
+    def test_save_model_on_termination(self):
+        test_hp1 = {
+            'num_round': '5',
+            'save_model_on_termination': "true"
+        }
+
+        assert hyperparameters.validate(test_hp1)
+
+        test_hp2 = {
+            'num_round': '5',
+            'save_model_on_termination': "false"
+        }
+
+        assert hyperparameters.validate(test_hp2)
+
+        test_hp3 = {
+            'num_round': '5',
+            'save_model_on_termination': "incorrect"
+        }
+
+        with self.assertRaises(exc.UserError):
+            hyperparameters.validate(test_hp3)
+
+    def test_survival_analysis(self):
+        test_hp1 = {
+            "num_round": "1",
+            "eval_metric": "aft-nloglik",
+            "objective": "reg:squarederror",
+        }
+        with self.assertRaises(exc.UserError):
+            hyperparameters.validate(test_hp1)
+
+        test_hp2 = {
+            "num_round": "1",
+            "eval_metric": "aft-nloglik",
+            "objective": "survival:aft",
+        }
+        assert hyperparameters.validate(test_hp2)
